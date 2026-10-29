@@ -1,0 +1,75 @@
+name: ci
+
+on:
+  # main is the integration branch: push listens only on it, feature branches
+  # are covered by pull_request, so one push never triggers two runs.
+  # Tags are handled by release.yml.
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  # Group by branch name rather than github.ref: push and pull_request carry
+  # different refs for the same change and would otherwise run twice.
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      # Must match the go directive in go.mod and GOTOOLCHAIN in
+      # scripts/build-init.sh, or CI falls back to a toolchain download and
+      # the result diverges from the recorded release toolchain.
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version: '1.26.10'
+          cache: true
+
+      # Keep the gofumpt version in sync with GOFUMPT_VERSION in the Makefile.
+      - name: format
+        run: |
+          set -euo pipefail
+          unformatted="$(go run mvdan.cc/gofumpt@v0.12.0 -l .)"
+          [[ -z "$unformatted" ]] || { echo "error: unformatted files:" >&2; printf '%s\n' "$unformatted" >&2; exit 1; }
+
+      - name: vet
+        run: go vet ./...
+
+      # The version must match version: "2" in .golangci.yml and
+      # GOLANGCI_LINT_VERSION in the Makefile.
+      - uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9
+        with:
+          version: v2.15.0
+
+      - name: test
+        run: go test ./...
+
+      # Same build entry point as the release workflow; the output goes to
+      # $RUNNER_TEMP so the working tree stays clean.
+      - name: build init binary
+        run: ./scripts/build-init.sh "$RUNNER_TEMP/verirelay-linux-amd64"
+
+      # veriforge rejects dynamically linked or non-x86-64 init binaries;
+      # fail here first.
+      - name: assert static linux/amd64 ELF
+        run: |
+          bin="$RUNNER_TEMP/verirelay-linux-amd64"
+          file "$bin"
+          file "$bin" | grep -q 'ELF 64-bit LSB executable, x86-64'
+          file "$bin" | grep -q 'statically linked'
+
+      # YAML parsing alone cannot catch workflow mistakes; only actionlint can.
+      - name: actionlint
+        run: |
+          set -euo pipefail
+          go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
+          "$(go env GOPATH)/bin/actionlint" -version
+          "$(go env GOPATH)/bin/actionlint"

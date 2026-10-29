@@ -1,0 +1,21 @@
+{
+  "version": "verirelay-guest-manifest/1",
+  "source": {
+    "verirelay": {
+      "repository": "https://github.com/verirelay/verirelay",
+      "commit": "0123456789abcdef0123456789abcdef01234567"
+    },
+    "veriforge": {
+      "repository": "https://github.com/verirelay/veriforge",
+      "commit": "89abcdef0123456789abcdef0123456789abcdef"
+    }
+  },
+  "launch_profile": {
+    "version": "verirelay-launch-profile/1",
+    "measurement_profile": "sev-snp-qemu-direct-boot/1",
+    "vcpu_type": "EPYC-v4",
+    "guest_features": "0x1",
+    "kernel_hashes": true,
+    "kernel_append": "console=ttyS0 quiet panic=1"
+  }
+}

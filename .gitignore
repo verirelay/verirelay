@@ -1,0 +1,10 @@
+.env
+.env.*
+.idea/
+dist/
+.secrets/
+/verirelay
+/bin/
+
+# Local tool caches
+.ua/
