@@ -135,8 +135,32 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          # The quoted heredoc keeps Markdown backticks literal; @REPO@ is filled in below.
+          notes="$(cat <<'EOF'
+          VeriRelay runs in a CVM and issues a Receipt for every forward.
+
+          To deploy it, use the Boot Artifact Set from [verirelay/release](https://github.com/verirelay/release/releases). It builds VeriRelay from source into the initrd and lists the Launch Measurements.
+
+          `verirelay-component-build.json` records the commit, Go toolchain and build run of `verirelay-linux-amd64`.
+
+          ## Verify
+
+          Each file comes with a `.cosign.bundle` from this repository's release workflow:
+
+          ```bash
+          cosign verify-blob --bundle <file>.cosign.bundle \
+            --certificate-identity-regexp '^https://github\.com/@REPO@/\.github/workflows/release\.yml@' \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+            <file>
+          ```
+          EOF
+          )"
+          notes="${notes//@REPO@/"$GITHUB_REPOSITORY"}"
+          printf '%s\n' "$notes" > "$RUNNER_TEMP/RELEASE_NOTES.md"
+          # Generated notes append the changelog link after ours.
           gh release create "$RELEASE_TAG" \
             --verify-tag \
             --title "$RELEASE_TAG" \
+            --notes-file "$RUNNER_TEMP/RELEASE_NOTES.md" \
             --generate-notes \
             "$RUNNER_TEMP"/out/*
