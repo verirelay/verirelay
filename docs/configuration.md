@@ -4,7 +4,9 @@ English | [简体中文](configuration.zh-CN.md)
 
 ## Production and development mode
 
-VeriRelay runs in production mode unless `VERIRELAY_MODE=development` is set exactly. In a CVM, the environment of the init process comes from the measured kernel command line, so a Launch Measurement without `VERIRELAY_MODE=development` always runs in production mode.
+Development mode exists only in a development build, which is built with the `development` build tag (see [Development build](development.md#development-build)). The init binary from `scripts/build-init.sh`, and any other build without the tag, always runs in production mode, whatever its environment.
+
+A development build runs in development mode when `VERIRELAY_MODE=development` is set exactly, and otherwise in production mode.
 
 | | Production | Development |
 | --- | --- | --- |
@@ -20,6 +22,12 @@ VeriRelay runs in production mode unless `VERIRELAY_MODE=development` is set exa
 3. Create the Receipt Signing Key and the stores, archive the startup attestation response, and start serving.
 
 Every failure is logged and retried until startup succeeds. [`/readyz`](api.md#health-and-readiness) reports when it has.
+
+VeriRelay logs JSON lines to the serial console. Each attempt whose Bootstrap matches `HOST_DATA` logs `bootstrap matches HOST_DATA` with `chip_id`, the CHIP_ID of the CVM's Attestation Report as 128 lowercase hex digits, before it contacts VeriProv:
+
+```json
+{"time":"…","level":"INFO","msg":"bootstrap matches HOST_DATA","component":"provisioning","chip_id":"<128 hex digits>","veriprov":"<Bootstrap url>","profile":"<Bootstrap profile>"}
+```
 
 ## Bootstrap and Config Disk
 
@@ -71,7 +79,7 @@ The Guest Manifest is required: without a valid manifest, startup and the attest
 
 ## Development environment variables
 
-Development mode loads a `.env` file from the working directory; variables already set in the environment win. `VERIRELAY_MODE` itself is read only from the environment.
+These variables apply only to a development build. Development mode loads a `.env` file from the working directory; variables already set in the environment win. `VERIRELAY_MODE` itself is read only from the environment.
 
 ### Core
 

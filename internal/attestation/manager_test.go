@@ -133,15 +133,15 @@ func TestSEVSNPEndorsementsRequireCompleteCertificateChain(t *testing.T) {
 	}
 }
 
-func TestHostDataReadsTheReportField(t *testing.T) {
+func TestParseReportReadsTheReportFields(t *testing.T) {
 	report := sevtesting.TestRawReportV3([64]byte{}, 0x00a00f10)
 	want := sha256.Sum256([]byte("bootstrap"))
 	copy(report[0xc0:0xe0], want[:])
-	got, err := HostData(report[:abi.ReportSize])
-	if err != nil || !bytes.Equal(got, want[:]) {
-		t.Fatalf("HostData = %x, %v; want %x", got, err, want)
+	parsed, err := ParseReport(report[:abi.ReportSize])
+	if err != nil || !bytes.Equal(parsed.GetHostData(), want[:]) {
+		t.Fatalf("HOST_DATA = %x, %v; want %x", parsed.GetHostData(), err, want)
 	}
-	if _, err := HostData(report[:abi.ReportSize-1]); !errors.Is(err, ErrInvalidAttestationReport) {
+	if _, err := ParseReport(report[:abi.ReportSize-1]); !errors.Is(err, ErrInvalidAttestationReport) {
 		t.Fatalf("short report err = %v", err)
 	}
 }

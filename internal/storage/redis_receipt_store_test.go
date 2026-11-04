@@ -100,6 +100,42 @@ func TestRedisStoresKeepKeysUnderThePrefix(t *testing.T) {
 	}
 }
 
+func TestRedisLookupIDsStayInTheirNamespace(t *testing.T) {
+	mr := miniredis.RunT(t)
+	client := newTestRedisClient(t, mr)
+	receipts, err := NewRedisReceiptStore(client, "verirelay:", time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := NewRedisRawStore(client, "verirelay:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = mr.Set("verirelay:canary", "keep")
+	_ = mr.Set("verirelay:raw:secret", "raw-only")
+	for _, id := range []string{
+		"x\r\nDEL verirelay:canary\r\n",
+		"*3\r\n$3\r\nDEL\r\n$16\r\nverirelay:canary\r\n",
+		"* ",
+		"../raw:secret",
+		"\x00",
+		string(make([]byte, 1<<20)),
+	} {
+		if _, ok, err := receipts.Get(context.Background(), id); ok || err != nil {
+			t.Fatalf("receipt Get(%.20q) = %t, %v", id, ok, err)
+		}
+		if _, ok, err := raw.Get(context.Background(), id); ok || err != nil {
+			t.Fatalf("raw Get(%.20q) = %t, %v", id, ok, err)
+		}
+	}
+	if keys := mr.Keys(); len(keys) != 2 {
+		t.Fatalf("keys = %v", keys)
+	}
+	if value, _ := mr.Get("verirelay:canary"); value != "keep" {
+		t.Fatalf("canary = %q", value)
+	}
+}
+
 func TestRedisReceiptStoreRejectsCorruptRecordsWithoutDeleting(t *testing.T) {
 	tests := []struct {
 		name string

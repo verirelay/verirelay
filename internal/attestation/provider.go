@@ -9,6 +9,7 @@ import (
 	"fmt"
 
 	"github.com/google/go-sev-guest/abi"
+	sevsnppb "github.com/google/go-sev-guest/proto/sevsnp"
 	"github.com/verirelay/protocol/avr1"
 )
 
@@ -56,8 +57,8 @@ func validEndorsements(e avr1.AttestationEndorsements) bool {
 	return e.Format == avr1.AttestationEndorsementsFormat && e.Encoding == avr1.AttestationEndorsementsEncoding && e.ASK != "" && e.ARK != "" && (e.VCEK != "" || e.VLEK != "")
 }
 
-// HostData returns the HOST_DATA of a raw Attestation Report.
-func HostData(report []byte) ([]byte, error) {
+// ParseReport parses the fields of a raw Attestation Report.
+func ParseReport(report []byte) (*sevsnppb.Report, error) {
 	if len(report) != avr1.AttestationReportSize {
 		return nil, fmt.Errorf("%w: %d bytes, want %d", ErrInvalidAttestationReport, len(report), avr1.AttestationReportSize)
 	}
@@ -65,7 +66,7 @@ func HostData(report []byte) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrInvalidAttestationReport, err)
 	}
-	return parsed.GetHostData(), nil
+	return parsed, nil
 }
 
 type Request struct {

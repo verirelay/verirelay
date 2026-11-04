@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/ed25519"
+	"encoding/hex"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -59,10 +60,11 @@ func resolveProduction(ctx context.Context, cfg config.Config, platform Guest) (
 	if err != nil {
 		return config.Config{}, err
 	}
-	if err := checkHostData(ctx, platform.Reporter, file); err != nil {
+	chipID, err := checkHostData(ctx, platform.Reporter, file)
+	if err != nil {
 		return config.Config{}, err
 	}
-	slog.Info("bootstrap matches HOST_DATA", "component", "provisioning", "veriprov", bootstrap.URL, "profile", bootstrap.Profile)
+	slog.Info("bootstrap matches HOST_DATA", "component", "provisioning", "chip_id", hex.EncodeToString(chipID), "veriprov", bootstrap.URL, "profile", bootstrap.Profile)
 	identity, err := bootstrap.IdentityKey()
 	if err != nil {
 		return config.Config{}, fmt.Errorf("%w: %w", ErrInvalidBootstrap, err)
@@ -97,23 +99,23 @@ func readBootstrap(disk []byte) ([]byte, guest.Bootstrap, error) {
 }
 
 // checkHostData requires the HOST_DATA of the Guest's own Attestation Report
-// to be the SHA-256 of the Bootstrap file.
-func checkHostData(ctx context.Context, reporter Reporter, bootstrap []byte) error {
+// to be the SHA-256 of the Bootstrap file, and returns the report's CHIP_ID.
+func checkHostData(ctx context.Context, reporter Reporter, bootstrap []byte) ([]byte, error) {
 	if reporter == nil {
-		return ErrReportUnavailable
+		return nil, ErrReportUnavailable
 	}
 	report, err := reporter.Report(ctx, [64]byte{})
 	if err != nil {
-		return fmt.Errorf("%w: %w", ErrReportUnavailable, err)
+		return nil, fmt.Errorf("%w: %w", ErrReportUnavailable, err)
 	}
-	hostData, err := attestation.HostData(report)
+	parsed, err := attestation.ParseReport(report)
 	if err != nil {
-		return fmt.Errorf("%w: %w", ErrReportUnavailable, err)
+		return nil, fmt.Errorf("%w: %w", ErrReportUnavailable, err)
 	}
-	if want := guest.HostData(bootstrap); !bytes.Equal(hostData, want[:]) {
-		return fmt.Errorf("%w: HOST_DATA is %x, Bootstrap SHA-256 is %x", ErrHostDataMismatch, hostData, want)
+	if want := guest.HostData(bootstrap); !bytes.Equal(parsed.GetHostData(), want[:]) {
+		return nil, fmt.Errorf("%w: HOST_DATA is %x, Bootstrap SHA-256 is %x", ErrHostDataMismatch, parsed.GetHostData(), want)
 	}
-	return nil
+	return parsed.GetChipId(), nil
 }
 
 func provision(ctx context.Context, cfg config.Config, platform Guest, baseURL *url.URL, identity ed25519.PublicKey) (config.Config, error) {

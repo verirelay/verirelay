@@ -14,12 +14,24 @@
 go build ./...
 ```
 
+## 开发构建
+
+只有带 `development` build tag 的构建才编译进[开发模式](configuration.zh-CN.md#生产模式与开发模式)：
+
+```bash
+go build -tags development -o bin/verirelay-dev ./cmd/verirelay
+```
+
+不带该 tag 的构建（包括[确定性 init 构建](#确定性-init-构建)）没有开发模式。
+
 ## 测试
 
 ```bash
 go vet ./...
 go test ./...
-go test -race ./internal/storage ./internal/proxy
+go vet -tags development ./...
+go test -tags development ./...
+go test -race ./internal/storage ./internal/proxy ./internal/server
 ```
 
 Redis/Valkey 集成测试使用 `integration` build tag：
@@ -46,13 +58,13 @@ VERIRELAY_TEST_VALKEY_ADDR=127.0.0.1:6380 go test -tags=integration ./internal/s
 `.github/workflows/ci.yml` 在 push 到 `main` 和 pull request 时运行：
 
 1. gofumpt 格式检查
-2. `go vet ./...`
-3. `golangci-lint`
-4. `go test ./...`
+2. `go vet`，默认构建与开发构建各一次
+3. `golangci-lint`，默认构建与开发构建各一次
+4. `go test`，默认构建与开发构建各一次
 5. `build-init.sh` 构建，并断言产物是静态链接的 x86-64 ELF
 6. 对 workflow 文件运行 `actionlint`
 
-`make check` 在本地使用 CI 锁定的版本运行格式、vet、测试、构建和 lint。
+`make check` 在本地使用 CI 锁定的版本运行格式、vet、测试、构建和 lint，其中 vet、测试和 lint 对两种构建各运行一次。
 
 ## 发布
 

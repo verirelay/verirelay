@@ -39,7 +39,7 @@ VeriRelay 错误码：
 
 | HTTP | Code | 原因 |
 | ---: | --- | --- |
-| 400 | `upstream_route_invalid` | 目标格式错误，或使用 `http://` scheme |
+| 400 | `upstream_route_invalid` | 目标格式错误、使用 `http://` scheme，或 query 含 `#` 或可打印 ASCII 以外的字节 |
 | 400 | `request_body_read_failed` | 请求 body 读取失败 |
 | 401 | `unauthorized` | `X-VeriRelay-Token` 缺失、不匹配，或未配置 `admin_token` |
 | 403 | `upstream_not_allowed` | 目标是本地主机名，或解析到非公网地址 |
@@ -52,7 +52,15 @@ VeriRelay 错误码：
 
 ## Header
 
-转发请求会移除 hop-by-hop header 与 `X-VeriRelay-*`，因此 token 不会到达上游。VeriRelay 给转发请求加上 `X-VeriRelay-Request-Id`。
+转发请求会移除 hop-by-hop header 与 `X-VeriRelay-*`，因此 token 不会到达上游。转发请求还会移除以下 header：
+
+- `Expect`
+- `Forwarded`
+- `X-Forwarded-Host`、`X-Forwarded-Server`、`X-Host`
+- `X-HTTP-Method`、`X-HTTP-Method-Override`、`X-Method-Override`
+- `X-Original-URL`、`X-Rewrite-URL`
+
+header 名称匹配不区分大小写，用 `_` 代替 `-` 也同样匹配。VeriRelay 给转发请求加上 `X-VeriRelay-Request-Id`。
 
 透传的响应会移除 hop-by-hop header 和 `X-VeriRelay-*`，再由 VeriRelay 加上：
 
@@ -74,6 +82,8 @@ VeriRelay 不设置 CORS header，也不特殊处理 `OPTIONS`。
 ## 收据
 
 完整转发后，无论上游状态码是什么，VeriRelay 都以 `request_id` 为键签名并存储 `avr/1` 收据。缓冲响应完整写出，或 SSE 流正常 EOF，才算完整转发。
+
+只有由 `Content-Length` 或 chunked 传输编码界定的上游响应 body 才有收据，没有 body 的响应（`HEAD` 的响应，或状态码 `204`、`304`）也有收据。以上游关闭连接为结束的 body 照常透传，但没有收据。
 
 ### `GET /v1/avr/receipts/<request_id>`
 
@@ -141,6 +151,12 @@ VeriRelay 不设置 CORS header，也不特殊处理 `OPTIONS`。
 两者都是纯文本 body。启动完成前，其余所有路由返回 JSON 错误 `503 not_ready`。
 
 store 的 readiness 只影响 `/readyz`：store 故障期间，其余路由继续服务并报告各自的 store 错误（例如 `503 receipt_store_unavailable`）。收据无法存储的转发请求仍会被转发，但该收据无法取回。
+
+## 连接
+
+如果请求 body 没有被 VeriRelay 读完，例如发往公开接口的 body，或发往 `/to/` 但没有有效 token 的 body，响应带 `Connection: close`，body 的剩余部分不再读取。
+
+VeriRelay 最多同时保持 4096 个客户端连接，更多的客户端要等已有连接关闭后才会被接受。
 
 ## SSE 语义
 

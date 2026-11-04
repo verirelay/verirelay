@@ -205,9 +205,9 @@ VeriRelay 只在保留期内保存收据：
 
 | 文档 | 内容 |
 | --- | --- |
-| [API 参考](docs/api.zh-CN.md) | 路由、header、收据/evidence/远程证明接口、状态码、SSE 语义 |
+| [API 参考](docs/api.zh-CN.md) | 路由、header、收据/evidence/远程证明接口、状态码、连接、SSE 语义 |
 | [配置](docs/configuration.zh-CN.md) | 生产模式与开发模式、生产模式启动、引导文件与配置盘、来自 VeriProv 的运行配置、SEV-SNP endorsements、开发模式环境变量 |
-| [开发](docs/development.zh-CN.md) | 构建、测试、确定性 init 构建、CI、发布 |
+| [开发](docs/development.zh-CN.md) | 构建、开发构建、测试、确定性 init 构建、CI、发布 |
 | [术语表](docs/glossary.zh-CN.md) | 全项目统一的名词与定义 |
 | [Protocol](https://github.com/verirelay/protocol) | 线格式：[`avr/1`](https://github.com/verirelay/protocol/blob/main/docs/avr1.zh-CN.md)、[`veriprov/1`](https://github.com/verirelay/protocol/blob/main/docs/veriprov1.zh-CN.md)、[guest 文件](https://github.com/verirelay/protocol/blob/main/docs/guest.zh-CN.md) |
 | [贡献](CONTRIBUTING.md) | 提交 PR 前的检查与跨仓库契约 |

@@ -13,6 +13,7 @@ build:
 
 test:
 	go test ./...
+	go test -tags development ./...
 
 fmt:
 	@unformatted="$$(go run mvdan.cc/gofumpt@$(GOFUMPT_VERSION) -l .)"; \
@@ -20,9 +21,11 @@ fmt:
 
 vet:
 	go vet ./...
+	go vet -tags development ./...
 
 lint:
 	go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION) run
+	go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION) run --build-tags development
 
 check: fmt vet test build lint
 

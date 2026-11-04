@@ -14,12 +14,24 @@ English | [简体中文](development.zh-CN.md)
 go build ./...
 ```
 
+## Development build
+
+[Development mode](configuration.md#production-and-development-mode) is compiled in only with the `development` build tag:
+
+```bash
+go build -tags development -o bin/verirelay-dev ./cmd/verirelay
+```
+
+A build without the tag, including the [deterministic init build](#deterministic-init-build), has no development mode.
+
 ## Tests
 
 ```bash
 go vet ./...
 go test ./...
-go test -race ./internal/storage ./internal/proxy
+go vet -tags development ./...
+go test -tags development ./...
+go test -race ./internal/storage ./internal/proxy ./internal/server
 ```
 
 Redis/Valkey integration tests run behind the `integration` build tag:
@@ -46,13 +58,13 @@ The script pins the toolchain, environment, and build flags, so the artifact is 
 `.github/workflows/ci.yml` runs on pushes to `main` and on pull requests:
 
 1. gofumpt format check.
-2. `go vet ./...`.
-3. `golangci-lint`.
-4. `go test ./...`.
+2. `go vet`, for the default and the development build.
+3. `golangci-lint`, for the default and the development build.
+4. `go test`, for the default and the development build.
 5. The `build-init.sh` build, and an assertion that the artifact is a statically linked x86-64 ELF.
 6. `actionlint` on the workflow files.
 
-`make check` runs format, vet, test, build, and lint locally at the versions CI pins.
+`make check` runs format, vet, test, build, and lint locally at the versions CI pins, with vet, test and lint for both builds.
 
 ## Release
 

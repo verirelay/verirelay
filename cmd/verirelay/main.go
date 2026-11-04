@@ -5,9 +5,7 @@ package main
 import (
 	"context"
 	"log/slog"
-	"net/http"
 	"os"
-	"time"
 
 	"github.com/verirelay/verirelay/internal/attestation"
 	"github.com/verirelay/verirelay/internal/attestation/sevsnp"
@@ -46,14 +44,7 @@ func main() {
 	gate := server.NewGate()
 	go server.Start(context.Background(), cfg, platform, gate)
 
-	slog.Info("VeriRelay listening", "component", "server", "addr", cfg.ListenAddr)
-	srv := &http.Server{
-		Addr:              cfg.ListenAddr,
-		Handler:           server.LoggingMiddleware(gate),
-		ReadHeaderTimeout: 5 * time.Second,
-		IdleTimeout:       90 * time.Second,
-	}
-	if err := srv.ListenAndServe(); err != nil {
+	if err := server.ListenAndServe(cfg.ListenAddr, server.LoggingMiddleware(gate)); err != nil {
 		slog.Error("serve failed", "component", "server", "err", err)
 		os.Exit(1)
 	}

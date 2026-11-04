@@ -8,9 +8,11 @@ import (
 	"log/slog"
 )
 
-// Init performs system-level initialization: mounting filesystems, loading
-// kernel modules, and configuring the DHCPv4 network.
+// Init performs system-level initialization: raising the open file limit,
+// mounting filesystems, loading kernel modules, and configuring the DHCPv4
+// network.
 func Init(cfg Config) error {
+	raiseOpenFileLimit()
 	mountProc(cfg.ProcPath)
 	mountDev(cfg.DevPath)
 

@@ -43,14 +43,26 @@ jobs:
       - name: vet
         run: go vet ./...
 
+      - name: vet (development build)
+        run: go vet -tags development ./...
+
       # The version must match version: "2" in .golangci.yml and
       # GOLANGCI_LINT_VERSION in the Makefile.
       - uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9
         with:
           version: v2.15.0
 
+      - name: lint (development build)
+        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9
+        with:
+          version: v2.15.0
+          args: --build-tags development
+
       - name: test
         run: go test ./...
+
+      - name: test (development build)
+        run: go test -tags development ./...
 
       # Same build entry point as the release workflow; the output goes to
       # $RUNNER_TEMP so the working tree stays clean.

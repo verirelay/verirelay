@@ -10,6 +10,7 @@ import (
 	"hash"
 	"io"
 	"log/slog"
+	"maps"
 	"net"
 	"net/http"
 	"net/netip"
@@ -75,9 +76,23 @@ func (h *Handler) routeFor(ctx context.Context, requestURL *url.URL) (proxyRoute
 	if err != nil {
 		return proxyRoute{}, errors.New("invalid upstream path")
 	}
+	if !validRawQuery(requestURL.RawQuery) {
+		return proxyRoute{}, errors.New("invalid upstream query")
+	}
 	target := url.URL{Scheme: "https", Host: hostValue, Path: pathValue, RawPath: pathPart, RawQuery: requestURL.RawQuery}
 	upstream := url.URL{Scheme: "https", Host: hostValue, Path: "/"}
 	return proxyRoute{upstream: &upstream, target: target, resolvedIPs: resolvedIPs}, nil
+}
+
+// validRawQuery reports whether query is printable ASCII without '#', so
+// that it is sent and signed as the same bytes.
+func validRawQuery(query string) bool {
+	for i := range len(query) {
+		if c := query[i]; c < 0x21 || c > 0x7e || c == '#' {
+			return false
+		}
+	}
+	return true
 }
 
 func (h *Handler) validateUpstreamHost(ctx context.Context, host string) ([]netip.Addr, error) {
@@ -241,9 +256,11 @@ func (h *Handler) handleProxy(w http.ResponseWriter, r *http.Request) {
 		requestID:          requestID,
 		method:             r.Method,
 		route:              route,
+		upstreamPath:       outReq.URL.RequestURI(),
 		requestBody:        bodyBytes,
 		requestBodySHA256:  requestBodySHA256,
 		resp:               resp,
+		closeDelimited:     closeDelimited(r.Method, resp),
 		upstreamSPKISHA256: upstreamSPKI(resp),
 		storePlan:          storePlan,
 		clientCtx:          clientCtx,
@@ -261,12 +278,18 @@ type proxyFailure struct {
 }
 
 type exchange struct {
-	requestID          string
-	method             string
-	route              proxyRoute
-	requestBody        []byte
-	requestBodySHA256  string
-	resp               *http.Response
+	requestID string
+	method    string
+	route     proxyRoute
+	// upstreamPath is the request-target sent to the Upstream.
+	upstreamPath      string
+	requestBody       []byte
+	requestBodySHA256 string
+	resp              *http.Response
+	// closeDelimited is set when the response body ends only when the
+	// connection closes; the Upstream does not authenticate that end, so
+	// such a response gets no Receipt.
+	closeDelimited     bool
 	upstreamSPKISHA256 string
 	storePlan          rawStorePlan
 	clientCtx          context.Context
@@ -287,11 +310,16 @@ func (h *Handler) resolveRoute(ctx context.Context, u *url.URL) (proxyRoute, *pr
 }
 
 func (h *Handler) buildUpstreamRequest(r *http.Request, route proxyRoute, body []byte, requestID string) (*http.Request, *proxyFailure) {
-	outReq, err := http.NewRequestWithContext(r.Context(), r.Method, route.target.String(), bytes.NewReader(body))
+	outReq, err := http.NewRequestWithContext(r.Context(), r.Method, "", bytes.NewReader(body))
 	if err != nil {
 		return nil, &proxyFailure{code: errorRequestBuildFailed, detail: err.Error()}
 	}
+	// The route's URL itself, not a string parsed again, so the
+	// request-target sent is the one the Receipt names.
+	target := route.target
+	outReq.URL = &target
 	copyHeaders(outReq.Header, r.Header)
+	maps.DeleteFunc(outReq.Header, func(key string, _ []string) bool { return isUnforwardedRequestHeader(key) })
 	outReq.ContentLength = int64(len(body))
 	outReq.Host = route.upstream.Host
 	if _, ok := outReq.Header["User-Agent"]; !ok {
@@ -444,6 +472,10 @@ func (c *streamCopier) sum() string {
 }
 
 func (h *Handler) publishReceipt(ex *exchange, responseBodySHA256 string) {
+	if ex.closeDelimited {
+		slog.Warn("no receipt for a close-delimited response body", "component", "proxy", "request_id", ex.requestID, "status", ex.resp.StatusCode)
+		return
+	}
 	signed, err := h.buildSignedReceipt(ex, responseBodySHA256)
 	if err != nil {
 		slog.Error("receipt signing failed", "component", "proxy", "request_id", ex.requestID, "err", err)
@@ -476,7 +508,7 @@ func (h *Handler) buildSignedReceipt(ex *exchange, responseBodySHA256 string) (a
 		Timestamp:          time.Now().UTC().Format(time.RFC3339Nano),
 		Method:             ex.method,
 		UpstreamAuthority:  ex.route.upstream.Host,
-		UpstreamPath:       upstreamPathWithQuery(ex.route.target),
+		UpstreamPath:       ex.upstreamPath,
 		SNI:                ex.route.upstream.Hostname(),
 		UpstreamSPKISHA256: ex.upstreamSPKISHA256,
 		RequestBodySHA256:  ex.requestBodySHA256,
@@ -495,15 +527,12 @@ func upstreamSPKI(resp *http.Response) string {
 	return hex.EncodeToString(digest[:])
 }
 
-func upstreamPathWithQuery(u url.URL) string {
-	path := u.EscapedPath()
-	if path == "" {
-		path = "/"
-	}
-	if u.RawQuery != "" {
-		path += "?" + u.RawQuery
-	}
-	return path
+// closeDelimited reports whether the body of resp, a response to method, ends
+// only when the connection closes: no Content-Length, not chunked, and a
+// status that allows a body.
+func closeDelimited(method string, resp *http.Response) bool {
+	bodyAllowed := method != http.MethodHead && resp.StatusCode >= 200 && resp.StatusCode != http.StatusNoContent && resp.StatusCode != http.StatusNotModified
+	return bodyAllowed && resp.ContentLength < 0 && len(resp.TransferEncoding) == 0
 }
 
 func readLimited(src io.Reader, limit int64) ([]byte, error) {
@@ -549,6 +578,20 @@ func shouldSkipHeader(key string) bool {
 	}
 	switch lower {
 	case "connection", "keep-alive", "proxy-authenticate", "proxy-authorization", "proxy-connection", "te", "trailer", "transfer-encoding", "upgrade":
+		return true
+	default:
+		return false
+	}
+}
+
+// isUnforwardedRequestHeader reports whether key is a request header an
+// Upstream may act on in place of the method, path or host the Receipt names,
+// or Expect, which lets the Upstream answer before the body is sent.
+func isUnforwardedRequestHeader(key string) bool {
+	// CGI-style servers read "_" and "-" in a header name as the same.
+	switch strings.ReplaceAll(strings.ToLower(key), "_", "-") {
+	case "expect", "forwarded", "x-forwarded-host", "x-forwarded-server", "x-host",
+		"x-http-method", "x-http-method-override", "x-method-override", "x-original-url", "x-rewrite-url":
 		return true
 	default:
 		return false

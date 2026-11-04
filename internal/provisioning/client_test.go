@@ -6,6 +6,7 @@ import (
 	"crypto/ed25519"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -39,8 +40,12 @@ func (r *testReporter) Report(_ context.Context, reportData [64]byte) ([]byte, e
 	raw := sevtesting.TestRawReportV3(reportData, 0x00a00f10)
 	report := append([]byte(nil), raw[:abi.ReportSize]...)
 	copy(report[0xc0:0xe0], r.hostData[:])
+	copy(report[0x1a0:0x1e0], testChipID)
 	return report, nil
 }
+
+// testChipID is the CHIP_ID of every testReporter report.
+var testChipID = bytes.Repeat([]byte{0xab, 0xcd}, abi.ChipIDSize/2)
 
 // testVeriProv serves veriprov/1 and signs envelopes with identity.
 type testVeriProv struct {
@@ -217,6 +222,33 @@ func TestResolveProductionProvisionsFromTheBootstrap(t *testing.T) {
 	if len(reporter.reportData) != 2 || reporter.reportData[0] != [64]byte{} {
 		t.Fatalf("report requests = %d, first REPORT_DATA %x", len(reporter.reportData), reporter.reportData[0])
 	}
+}
+
+func TestResolveProductionLogsTheChipIDWhenProvisioningFails(t *testing.T) {
+	var output bytes.Buffer
+	previous := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&output, nil)))
+	defer slog.SetDefault(previous)
+	veriProv, server := newTestVeriProv(t)
+	veriProv.unsigned = true
+	bootstrap := testBootstrap(t, server, veriProv.identityPublicKey())
+	platform, _ := productionGuest(t, server, bootstrap, guest.HostData(bootstrap))
+	if _, err := Resolve(context.Background(), productionConfig(), platform); !errors.Is(err, ErrEnvelopeSignature) {
+		t.Fatalf("err = %v", err)
+	}
+	for line := range strings.Lines(output.String()) {
+		var record struct {
+			Msg    string `json:"msg"`
+			ChipID string `json:"chip_id"`
+		}
+		if err := json.Unmarshal([]byte(line), &record); err != nil {
+			t.Fatal(err)
+		}
+		if record.Msg == "bootstrap matches HOST_DATA" && record.ChipID == strings.Repeat("abcd", abi.ChipIDSize/2) {
+			return
+		}
+	}
+	t.Fatalf("no log line with the CHIP_ID: %s", output.String())
 }
 
 func TestResolveProductionRefusesAHostDataMismatch(t *testing.T) {

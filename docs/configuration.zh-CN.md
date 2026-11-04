@@ -4,7 +4,9 @@
 
 ## 生产模式与开发模式
 
-除非精确设置 `VERIRELAY_MODE=development`，VeriRelay 都以生产模式运行。在 CVM 中，init 进程的环境变量来自参与度量的内核命令行，因此不含 `VERIRELAY_MODE=development` 的启动度量总是以生产模式运行。
+只有开发构建才有开发模式，开发构建使用 `development` build tag 构建（见 [开发构建](development.zh-CN.md#开发构建)）。`scripts/build-init.sh` 产出的 init 二进制，以及其他任何不带该 tag 的构建，无论环境变量如何，都以生产模式运行。
+
+开发构建在精确设置 `VERIRELAY_MODE=development` 时以开发模式运行，否则以生产模式运行。
 
 | | 生产模式 | 开发模式 |
 | --- | --- | --- |
@@ -20,6 +22,12 @@
 3. 生成收据签名密钥和各 store，归档启动时的证明接口响应，开始服务。
 
 任何失败都会记录日志并一直重试，直到启动成功。可用 [`/readyz`](api.zh-CN.md#health-与-readiness) 判断启动是否完成。
+
+VeriRelay 以 JSON 行的形式把日志写到串口控制台。每次启动尝试中，只要引导文件与 `HOST_DATA` 相符，VeriRelay 就会在联系 VeriProv 之前记录一行 `bootstrap matches HOST_DATA`，其中 `chip_id` 是 CVM 证明报告中的 CHIP_ID，为 128 位小写十六进制：
+
+```json
+{"time":"…","level":"INFO","msg":"bootstrap matches HOST_DATA","component":"provisioning","chip_id":"<128 位十六进制>","veriprov":"<引导文件 url>","profile":"<引导文件 profile>"}
+```
 
 ## 引导文件与配置盘
 
@@ -71,7 +79,7 @@ VeriRelay 从 AMD KDS 获取 VCEK、ASK 和 ARK，放进 `endorsements` 返回�
 
 ## 开发模式环境变量
 
-开发模式会加载工作目录中的 `.env`，环境中已设置的变量优先。`VERIRELAY_MODE` 本身只从环境读取。
+这些变量只对开发构建生效。开发模式会加载工作目录中的 `.env`，环境中已设置的变量优先。`VERIRELAY_MODE` 本身只从环境读取。
 
 ### 核心
 

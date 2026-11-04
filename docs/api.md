@@ -39,7 +39,7 @@ VeriRelay error codes:
 
 | HTTP | Code | Cause |
 | ---: | --- | --- |
-| 400 | `upstream_route_invalid` | Malformed target, or an `http://` scheme. |
+| 400 | `upstream_route_invalid` | Malformed target, an `http://` scheme, or a query that contains `#` or a byte outside printable ASCII. |
 | 400 | `request_body_read_failed` | Request body could not be read. |
 | 401 | `unauthorized` | `X-VeriRelay-Token` missing or wrong, or `admin_token` not configured. |
 | 403 | `upstream_not_allowed` | The target is a local hostname or resolves to a non-public address. |
@@ -52,7 +52,15 @@ VeriRelay error codes:
 
 ## Headers
 
-Forwarded requests drop hop-by-hop and `X-VeriRelay-*` headers, so the token never reaches the Upstream. VeriRelay adds `X-VeriRelay-Request-Id` to them.
+Forwarded requests drop hop-by-hop and `X-VeriRelay-*` headers, so the token never reaches the Upstream. They also drop these headers:
+
+- `Expect`
+- `Forwarded`
+- `X-Forwarded-Host`, `X-Forwarded-Server`, `X-Host`
+- `X-HTTP-Method`, `X-HTTP-Method-Override`, `X-Method-Override`
+- `X-Original-URL`, `X-Rewrite-URL`
+
+Header names match regardless of case, and with `_` in place of `-`. VeriRelay adds `X-VeriRelay-Request-Id` to forwarded requests.
 
 Relayed responses drop hop-by-hop and `X-VeriRelay-*` headers, then VeriRelay adds:
 
@@ -74,6 +82,8 @@ With an invalid `X-VeriRelay-Store` value, or a capture that cannot be stored, t
 ## Receipts
 
 After a complete forward, VeriRelay signs and stores an `avr/1` Receipt keyed by `request_id`, for any Upstream status. A forward is complete once a buffered response is fully written, or once an SSE stream reaches normal EOF.
+
+Only an Upstream response body delimited by `Content-Length` or chunked transfer coding gets a Receipt, as does a response without a body (to `HEAD`, or with status `204` or `304`). A body that ends when the Upstream closes the connection is relayed without a Receipt.
 
 ### `GET /v1/avr/receipts/<request_id>`
 
@@ -141,6 +151,12 @@ Returns the Raw Capture envelope for a captured exchange, specified in section "
 Both bodies are plain text. Until startup has completed, every other route returns the JSON error `503 not_ready`.
 
 Store readiness only affects `/readyz`: during a store outage the other routes keep serving and report their own store errors, for example `503 receipt_store_unavailable`. A forward whose Receipt cannot be stored is still relayed, but that Receipt is not retrievable.
+
+## Connections
+
+A response to a request whose body VeriRelay does not read to the end, such as a body sent to a public endpoint or to `/to/` without a valid token, carries `Connection: close`, and the rest of the body is not read.
+
+VeriRelay keeps at most 4096 client connections open; further clients wait until a connection closes.
 
 ## SSE semantics
 

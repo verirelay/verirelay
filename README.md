@@ -205,9 +205,9 @@ Long-term evidence for billing, audits, and disputes is yours to keep. Within th
 
 | Document | Contents |
 | --- | --- |
-| [API reference](docs/api.md) | Routes, headers, Receipt/evidence/Attestation endpoints, status codes, SSE semantics |
+| [API reference](docs/api.md) | Routes, headers, Receipt/evidence/Attestation endpoints, status codes, connections, SSE semantics |
 | [Configuration](docs/configuration.md) | Production and development mode, production startup, Bootstrap and Config Disk, Runtime Config from VeriProv, SEV-SNP endorsements, development environment variables |
-| [Development](docs/development.md) | Build, tests, the deterministic init build, CI, release |
+| [Development](docs/development.md) | Build, the development build, tests, the deterministic init build, CI, release |
 | [Glossary](docs/glossary.md) | Canonical names and definitions used across the project |
 | [Protocol](https://github.com/verirelay/protocol) | Wire formats: [`avr/1`](https://github.com/verirelay/protocol/blob/main/docs/avr1.md), [`veriprov/1`](https://github.com/verirelay/protocol/blob/main/docs/veriprov1.md), [guest files](https://github.com/verirelay/protocol/blob/main/docs/guest.md) |
 | [Contributing](CONTRIBUTING.md) | Pre-PR checks and cross-repo contracts |
