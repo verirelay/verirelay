@@ -9,14 +9,11 @@ import (
 )
 
 // Init performs system-level initialization: raising the open file limit,
-// mounting filesystems, loading kernel modules, and configuring the DHCPv4
-// network.
+// mounting filesystems, and configuring the DHCPv4 network.
 func Init(cfg Config) error {
 	raiseOpenFileLimit()
 	mountProc(cfg.ProcPath)
 	mountDev(cfg.DevPath)
-
-	loadModules()
 
 	slog.Info("configuring VM DHCPv4 network topology", "component", "system")
 	if err := configureLoopback(cfg.LoopbackName); err != nil {
