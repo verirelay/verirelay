@@ -7,7 +7,7 @@ require (
 	github.com/google/go-sev-guest v0.15.0
 	github.com/insomniacslk/dhcp v0.0.0-20261014062924-c6bb46ad3f3a
 	github.com/redis/go-redis/v9 v9.23.0
-	github.com/verirelay/protocol v0.1.0
+	github.com/verirelay/protocol v0.2.0
 	github.com/vishvananda/netlink v1.3.1
 	golang.org/x/net v0.61.0
 	golang.org/x/sys v0.49.0
