@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"net/netip"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -42,7 +43,7 @@ func cutAnyPrefix(s string, prefixes []string) (string, bool) {
 	return s, false
 }
 
-func (h *Handler) routeFor(ctx context.Context, requestURL *url.URL) (proxyRoute, error) {
+func (h *Handler) routeFor(ctx context.Context, requestURL *url.URL, proxy *url.URL) (proxyRoute, error) {
 	raw := strings.TrimPrefix(requestURL.EscapedPath(), upstreamPathPrefix)
 	if raw == "" {
 		return proxyRoute{}, errors.New("missing upstream target")
@@ -59,7 +60,7 @@ func (h *Handler) routeFor(ctx context.Context, requestURL *url.URL) (proxyRoute
 		return proxyRoute{}, errors.New("invalid upstream host")
 	}
 	hostValue = strings.ToLower(strings.TrimSpace(hostValue))
-	resolvedIPs, err := h.validateUpstreamHost(ctx, hostValue)
+	resolvedIPs, err := h.validateUpstreamHost(ctx, hostValue, proxy != nil)
 	if err != nil {
 		return proxyRoute{}, err
 	}
@@ -81,7 +82,22 @@ func (h *Handler) routeFor(ctx context.Context, requestURL *url.URL) (proxyRoute
 	}
 	target := url.URL{Scheme: "https", Host: hostValue, Path: pathValue, RawPath: pathPart, RawQuery: requestURL.RawQuery}
 	upstream := url.URL{Scheme: "https", Host: hostValue, Path: "/"}
-	return proxyRoute{upstream: &upstream, target: target, resolvedIPs: resolvedIPs}, nil
+	return proxyRoute{upstream: &upstream, target: target, resolvedIPs: resolvedIPs, proxy: proxy}, nil
+}
+
+var upstreamProxySchemes = []string{"http", "https", "socks5", "socks5h"}
+
+// parseUpstreamProxy reads X-VeriRelay-Proxy; an empty value means a direct
+// connection. Its error never quotes the value, which may hold credentials.
+func parseUpstreamProxy(value string) (*url.URL, error) {
+	if value == "" {
+		return nil, nil
+	}
+	proxy, err := url.Parse(value)
+	if err != nil || !slices.Contains(upstreamProxySchemes, proxy.Scheme) || proxy.Hostname() == "" {
+		return nil, errors.New("proxy must be an http, https, socks5 or socks5h URL with a host")
+	}
+	return proxy, nil
 }
 
 // validRawQuery reports whether query is printable ASCII without '#', so
@@ -95,12 +111,13 @@ func validRawQuery(query string) bool {
 	return true
 }
 
-func (h *Handler) validateUpstreamHost(ctx context.Context, host string) ([]netip.Addr, error) {
+func (h *Handler) validateUpstreamHost(ctx context.Context, host string, proxied bool) ([]netip.Addr, error) {
 	parsedHost, err := h.upstreamHostName(host)
 	if err != nil {
 		return nil, err
 	}
-	if h.options.AllowPrivateUpstreams {
+	// A proxy resolves the Upstream from its own network.
+	if h.options.AllowPrivateUpstreams || proxied {
 		return nil, nil
 	}
 	if isLocalHostname(parsedHost) {
@@ -172,6 +189,13 @@ func newUpstreamClient(transport http.RoundTripper) *http.Client {
 }
 
 func (h *Handler) clientForRoute(route proxyRoute) *http.Client {
+	if route.proxy != nil {
+		// The Transport tunnels through the proxy and runs TLS with the
+		// Upstream over the tunnel, so the Receipt names the Upstream's key.
+		transport := h.transport.Clone()
+		transport.Proxy = http.ProxyURL(route.proxy)
+		return newUpstreamClient(transport)
+	}
 	if h.options.AllowPrivateUpstreams || len(route.resolvedIPs) == 0 || h.transport == nil {
 		return h.client
 	}
@@ -213,7 +237,7 @@ func (h *Handler) handleProxy(w http.ResponseWriter, r *http.Request) {
 	}
 	storePlan := h.newRawStorePlan(r.Header.Get(storeRequestHeader), requestID)
 
-	route, failure := h.resolveRoute(r.Context(), r.URL)
+	route, failure := h.resolveRoute(r.Context(), r.URL, r.Header.Get(upstreamProxyHeader))
 	if failure != nil {
 		h.writeProxyError(w, failure.code, requestID, failure.detail)
 		return
@@ -295,8 +319,12 @@ type exchange struct {
 	clientCtx          context.Context
 }
 
-func (h *Handler) resolveRoute(ctx context.Context, u *url.URL) (proxyRoute, *proxyFailure) {
-	route, err := h.routeFor(ctx, u)
+func (h *Handler) resolveRoute(ctx context.Context, u *url.URL, proxyValue string) (proxyRoute, *proxyFailure) {
+	proxy, err := parseUpstreamProxy(proxyValue)
+	if err != nil {
+		return proxyRoute{}, &proxyFailure{code: errorProxyInvalid, detail: err.Error()}
+	}
+	route, err := h.routeFor(ctx, u, proxy)
 	if err != nil {
 		code := errorUpstreamRouteInvalid
 		if errors.Is(err, errUpstreamNotAllowed) {

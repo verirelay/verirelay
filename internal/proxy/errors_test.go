@@ -19,6 +19,7 @@ func TestErrorSpecsCoverEveryCode(t *testing.T) {
 		errorInvalidNonce,
 		errorReceiptPublicKeyInvalid,
 		errorUpstreamRouteInvalid,
+		errorProxyInvalid,
 		errorRequestBodyReadFailed,
 		errorUpstreamNotAllowed,
 		errorRequestBodyTooLarge,

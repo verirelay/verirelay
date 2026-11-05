@@ -73,7 +73,7 @@ VeriRelay fetches the VCEK, ASK and ARK from the AMD KDS and returns them in `en
 | --- | --- |
 | `/etc/verirelay/manifest.json` | The Guest Manifest (`verirelay-guest-manifest/1`), disclosed as `source` and `launch_profile`. |
 | `/dev/vd*` | The Config Disk, which holds the Bootstrap (production only). |
-| `/etc/ssl/certs/ca-certificates.crt` | The CA bundle for outbound TLS: VeriProv, Upstreams, the AMD KDS and Redis. |
+| `/etc/ssl/certs/ca-certificates.crt` | The CA bundle for outbound TLS: VeriProv, Upstreams, `https://` Upstream proxies, the AMD KDS and Redis. |
 
 The Guest Manifest is required: without a valid manifest, startup and the attestation endpoint fail.
 

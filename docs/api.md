@@ -31,7 +31,7 @@ Every request carries `X-VeriRelay-Token: <admin_token>`, matching `admin_token`
 
 Upstream validation:
 
-- The host must resolve to public IPs only; `localhost`, `.localhost` and `.local` names are rejected. In development mode, `VERIRELAY_ALLOW_PRIVATE_UPSTREAMS=true` lifts this check.
+- The host must resolve to public IPs only; `localhost`, `.localhost` and `.local` names are rejected. In development mode, `VERIRELAY_ALLOW_PRIVATE_UPSTREAMS=true` lifts this check. A forward through an [Upstream proxy](#upstream-proxy) skips it.
 - Any port is allowed; the default port is 443.
 - Redirects are not followed; `3xx` responses are relayed as-is.
 
@@ -41,11 +41,12 @@ VeriRelay error codes:
 | ---: | --- | --- |
 | 400 | `upstream_route_invalid` | Malformed target, an `http://` scheme, or a query that contains `#` or a byte outside printable ASCII. |
 | 400 | `request_body_read_failed` | Request body could not be read. |
+| 400 | `proxy_invalid` | `X-VeriRelay-Proxy` is not an `http`, `https`, `socks5` or `socks5h` URL with a host. |
 | 401 | `unauthorized` | `X-VeriRelay-Token` missing or wrong, or `admin_token` not configured. |
 | 403 | `upstream_not_allowed` | The target is a local hostname or resolves to a non-public address. |
 | 413 | `request_body_too_large` | Request body over 32 MiB. |
 | 500 | `request_id_failed`, `request_build_failed` | Internal failures. |
-| 502 | `upstream_request_failed` | DNS resolution, connect, or TLS failure. |
+| 502 | `upstream_request_failed` | DNS resolution, connect, proxy, or TLS failure. |
 | 502 | `upstream_response_too_large` | Non-SSE Upstream response over 64 MiB. |
 | 502 | `response_body_read_failed` | Upstream response body read error. |
 | 504 | `upstream_timeout` | Network timeout connecting to or reading from the Upstream. There is no overall request timeout. |
@@ -70,6 +71,16 @@ Relayed responses drop hop-by-hop and `X-VeriRelay-*` headers, then VeriRelay ad
 | `X-VeriRelay-Store-Id`, `X-VeriRelay-Store-Key` | The client requested a [Raw Capture](#raw-capture). |
 
 VeriRelay sets no CORS headers and gives `OPTIONS` no special handling.
+
+## Upstream proxy
+
+A client may send `X-VeriRelay-Proxy: <proxy-url>` to reach the Upstream of that request through an HTTP or SOCKS5 proxy, for example an Upstream that is unreachable or slow from where VeriRelay runs. Without the header, VeriRelay connects directly.
+
+- Schemes are `http://`, `https://`, `socks5://` and `socks5h://`. Credentials go in the URL, as in `socks5://user:password@10.0.0.2:1080`. The proxy may have any address, private ones included.
+- The proxy resolves the Upstream host from its own network, with either SOCKS5 scheme. VeriRelay does not resolve it and skips the public-IP check.
+- The proxy only carries the connection. VeriRelay runs TLS with the Upstream through it and verifies the Upstream certificate itself, so the proxy can neither read nor change the exchange, and the Receipt is the same as for a direct forward.
+- An `https://` proxy's certificate is validated against the CA bundle in the initrd.
+- The header is not forwarded, signed or stored.
 
 ## Raw Capture
 

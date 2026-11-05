@@ -26,6 +26,7 @@ const (
 	storeRequestHeader       = "X-VeriRelay-Store"
 	storeIDHeader            = "X-VeriRelay-Store-Id"
 	storeKeyHeader           = "X-VeriRelay-Store-Key"
+	upstreamProxyHeader      = "X-VeriRelay-Proxy"
 	rawStoreSaveTimeout      = 500 * time.Millisecond
 )
 
@@ -33,6 +34,8 @@ type proxyRoute struct {
 	upstream    *url.URL
 	target      url.URL
 	resolvedIPs []netip.Addr
+	// proxy, when set, tunnels the connection and resolves the Upstream.
+	proxy *url.URL
 }
 
 type Handler struct {
@@ -47,6 +50,8 @@ type Handler struct {
 func NewHandler(debugErrors bool, options Options) *Handler {
 	// net/http initializes DefaultTransport as *http.Transport and this program never replaces it.
 	transport := http.DefaultTransport.(*http.Transport).Clone()
+	// Only X-VeriRelay-Proxy sends a forward through a proxy, never the environment.
+	transport.Proxy = nil
 	transport.DisableKeepAlives = true
 	transport.ForceAttemptHTTP2 = false
 	if transport.TLSClientConfig == nil {

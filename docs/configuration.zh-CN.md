@@ -73,7 +73,7 @@ VeriRelay 从 AMD KDS 获取 VCEK、ASK 和 ARK，放进 `endorsements` 返回�
 | --- | --- |
 | `/etc/verirelay/manifest.json` | 来宾启动声明（`verirelay-guest-manifest/1`），以 `source` 和 `launch_profile` 公开 |
 | `/dev/vd*` | 配置盘，存放引导文件（仅生产模式） |
-| `/etc/ssl/certs/ca-certificates.crt` | 对外 TLS 连接使用的 CA bundle：VeriProv、上游、AMD KDS 和 Redis |
+| `/etc/ssl/certs/ca-certificates.crt` | 对外 TLS 连接使用的 CA bundle：VeriProv、上游、`https://` 上游代理、AMD KDS 和 Redis |
 
 来宾启动声明是必需的：没有合法的来宾启动声明，启动和证明接口都会失败。
 

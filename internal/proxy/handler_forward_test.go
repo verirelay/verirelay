@@ -5,6 +5,8 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/base64"
+	"encoding/binary"
 	"encoding/json"
 	"io"
 	"net"
@@ -12,6 +14,7 @@ import (
 	"net/http/httptest"
 	"net/netip"
 	"net/url"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -279,5 +282,178 @@ func TestRequestBodyIsSentBeforeAnEarlyResponse(t *testing.T) {
 	}
 	if receipt.RequestBodySHA256 != avr1.SHA256Hex(got) {
 		t.Fatalf("Upstream received %q, Receipt names request_body_sha256 of %q", got, body)
+	}
+}
+
+// proxyHandshake answers a proxy client's handshake and returns the target
+// and the user:password it sent.
+type proxyHandshake func(c net.Conn) (target, credentials string, ok bool)
+
+func connectHandshake(c net.Conn) (string, string, bool) {
+	req, err := http.ReadRequest(bufio.NewReader(c))
+	if err != nil || req.Method != http.MethodConnect {
+		return "", "", false
+	}
+	credentials, _ := base64.StdEncoding.DecodeString(strings.TrimPrefix(req.Header.Get("Proxy-Authorization"), "Basic "))
+	_, err = io.WriteString(c, "HTTP/1.1 200 Connection established\r\n\r\n")
+	return req.Host, string(credentials), err == nil
+}
+
+// socks5Handshake speaks RFC 1928 with RFC 1929 username/password auth.
+func socks5Handshake(c net.Conn) (string, string, bool) {
+	read := func(n byte) []byte {
+		b := make([]byte, n)
+		if _, err := io.ReadFull(c, b); err != nil {
+			return nil
+		}
+		return b
+	}
+	if greeting := read(2); greeting == nil || greeting[0] != 5 || read(greeting[1]) == nil {
+		return "", "", false
+	}
+	if _, err := c.Write([]byte{5, 2}); err != nil {
+		return "", "", false
+	}
+	auth := read(2)
+	if auth == nil {
+		return "", "", false
+	}
+	user := read(auth[1])
+	passwordLength := read(1)
+	if user == nil || passwordLength == nil {
+		return "", "", false
+	}
+	password := read(passwordLength[0])
+	if _, err := c.Write([]byte{1, 0}); password == nil || err != nil {
+		return "", "", false
+	}
+	request := read(4)
+	if request == nil || request[1] != 1 {
+		return "", "", false
+	}
+	var host []byte
+	switch request[3] {
+	case 1:
+		host = []byte(net.IP(read(4)).String())
+	case 3:
+		if length := read(1); length != nil {
+			host = read(length[0])
+		}
+	}
+	port := read(2)
+	if host == nil || port == nil {
+		return "", "", false
+	}
+	if _, err := c.Write([]byte{5, 0, 0, 1, 0, 0, 0, 0, 0, 0}); err != nil {
+		return "", "", false
+	}
+	return net.JoinHostPort(string(host), strconv.Itoa(int(binary.BigEndian.Uint16(port)))), string(user) + ":" + string(password), true
+}
+
+// tunnelProxy runs handshake on each connection, then joins it to
+// upstreamAddr whatever target the client named, as a proxy resolving names
+// on its own network would. It reports each target and credentials.
+func tunnelProxy(t *testing.T, upstreamAddr string, handshake proxyHandshake) (string, <-chan [2]string) {
+	t.Helper()
+	listener, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = listener.Close() })
+	seen := make(chan [2]string, 16)
+	go func() {
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			go func() {
+				defer func() { _ = conn.Close() }()
+				target, credentials, ok := handshake(conn)
+				if !ok {
+					return
+				}
+				seen <- [2]string{target, credentials}
+				upstream, err := (&net.Dialer{}).DialContext(t.Context(), "tcp", upstreamAddr)
+				if err != nil {
+					return
+				}
+				defer func() { _ = upstream.Close() }()
+				go func() { _, _ = io.Copy(upstream, conn) }()
+				_, _ = io.Copy(conn, upstream)
+			}()
+		}
+	}()
+	return listener.Addr().String(), seen
+}
+
+// TestForwardThroughProxy: the proxy gets the Upstream host to resolve
+// itself, even a name or address VeriRelay would refuse to dial, and only
+// carries the TLS connection, so the Receipt is that of a direct forward.
+func TestForwardThroughProxy(t *testing.T) {
+	addr, pool, requests := rawTLSUpstream(t, func(c *tls.Conn, _ *http.Request) {
+		_, _ = io.WriteString(c, "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok")
+	})
+	_, port, _ := net.SplitHostPort(addr)
+	direct, err := (&tls.Dialer{Config: &tls.Config{RootCAs: pool, ServerName: "example.com"}}).DialContext(t.Context(), "tcp", addr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := direct.(*tls.Conn).ConnectionState()
+	_ = direct.Close()
+	wantSPKI := upstreamSPKI(&http.Response{TLS: &state})
+
+	handler := wireHandler(t, pool)
+	handler.options.AllowPrivateUpstreams = false
+	for _, scheme := range []string{"http", "socks5", "socks5h"} {
+		handshake := connectHandshake
+		if scheme != "http" {
+			handshake = socks5Handshake
+		}
+		proxyAddr, seen := tunnelProxy(t, addr, handshake)
+		for _, host := range []string{"example.com", "127.0.0.1"} {
+			authority := net.JoinHostPort(host, port)
+			rr := serve(handler, http.MethodGet, "/to/"+authority+"/v1/x", nil, withProxyToken(testAdminToken),
+				withHeader(upstreamProxyHeader, scheme+"://user:secret@"+proxyAddr))
+			if rr.Code != http.StatusOK {
+				t.Fatalf("%s %s: %d %s", scheme, host, rr.Code, rr.Body.String())
+			}
+			select {
+			case got := <-seen:
+				if got != [2]string{authority, "user:secret"} {
+					t.Errorf("%s %s: proxy got target and credentials %q", scheme, host, got)
+				}
+			default:
+				t.Fatalf("%s %s: forward did not go through the proxy", scheme, host)
+			}
+			wire := <-requests
+			if wire.Header.Get(upstreamProxyHeader) != "" || wire.Header.Get("Proxy-Authorization") != "" {
+				t.Errorf("%s %s: Upstream received the proxy: %v", scheme, host, wire.Header)
+			}
+			receipt, ok := storedReceipt(t, handler, rr)
+			if !ok || receipt.UpstreamAuthority != authority || receipt.UpstreamTLS.SPKISHA256 != wantSPKI {
+				t.Errorf("%s %s: receipt = %+v, %t", scheme, host, receipt, ok)
+			}
+		}
+	}
+}
+
+func TestInvalidProxyIsRejected(t *testing.T) {
+	handler := testHandler(t)
+	handler.debugErrors = true
+	stubUpstream(handler, nil, "ok")
+	for _, value := range []string{
+		"proxy.example:1080",
+		"10.0.0.1:1080",
+		"ftp://user:secret@proxy.example",
+		"socks4://proxy.example:1080",
+		"socks5://user:secret@",
+		"http://user:secret@:8080",
+		"http://user:secret@proxy.example:bad",
+	} {
+		rr := serve(handler, http.MethodGet, "/to/example.com/v1/x", nil, withProxyToken(testAdminToken), withHeader(upstreamProxyHeader, value))
+		if rr.Code != http.StatusBadRequest || decodeErrorResponse(t, rr).Code != errorProxyInvalid || strings.Contains(rr.Body.String(), "secret") {
+			t.Errorf("proxy %q: %d %s", value, rr.Code, rr.Body.String())
+		}
 	}
 }

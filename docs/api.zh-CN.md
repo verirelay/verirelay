@@ -31,7 +31,7 @@
 
 上游校验：
 
-- host 只能解析到公网 IP，`localhost`、`.localhost` 和 `.local` 名称会被拒绝。开发模式下设置 `VERIRELAY_ALLOW_PRIVATE_UPSTREAMS=true` 可取消这项检查。
+- host 只能解析到公网 IP，`localhost`、`.localhost` 和 `.local` 名称会被拒绝。开发模式下设置 `VERIRELAY_ALLOW_PRIVATE_UPSTREAMS=true` 可取消这项检查。经[上游代理](#上游代理)转发时不做这项检查。
 - 允许任意端口，默认端口 443。
 - 不跟随重定向，`3xx` 响应原样转发。
 
@@ -41,11 +41,12 @@ VeriRelay 错误码：
 | ---: | --- | --- |
 | 400 | `upstream_route_invalid` | 目标格式错误、使用 `http://` scheme，或 query 含 `#` 或可打印 ASCII 以外的字节 |
 | 400 | `request_body_read_failed` | 请求 body 读取失败 |
+| 400 | `proxy_invalid` | `X-VeriRelay-Proxy` 不是带 host 的 `http`、`https`、`socks5` 或 `socks5h` URL |
 | 401 | `unauthorized` | `X-VeriRelay-Token` 缺失、不匹配，或未配置 `admin_token` |
 | 403 | `upstream_not_allowed` | 目标是本地主机名，或解析到非公网地址 |
 | 413 | `request_body_too_large` | 请求 body 超过 32 MiB |
 | 500 | `request_id_failed`, `request_build_failed` | 内部错误 |
-| 502 | `upstream_request_failed` | DNS 解析、连接或 TLS 失败 |
+| 502 | `upstream_request_failed` | DNS 解析、连接、代理或 TLS 失败 |
 | 502 | `upstream_response_too_large` | 非 SSE 的上游响应超过 64 MiB |
 | 502 | `response_body_read_failed` | 上游响应 body 读取失败 |
 | 504 | `upstream_timeout` | 连接上游或读取上游响应时发生网络超时；请求没有整体超时 |
@@ -70,6 +71,16 @@ header 名称匹配不区分大小写，用 `_` 代替 `-` 也同样匹配。Ver
 | `X-VeriRelay-Store-Id`, `X-VeriRelay-Store-Key` | 客户端请求了[原文留存](#原文留存) |
 
 VeriRelay 不设置 CORS header，也不特殊处理 `OPTIONS`。
+
+## 上游代理
+
+客户端可发送 `X-VeriRelay-Proxy: <proxy-url>`，让这次请求经 HTTP 或 SOCKS5 代理访问上游，例如从 VeriRelay 所在位置连不上或连接很慢的上游。不带这个 header 时 VeriRelay 直连。
+
+- 支持的 scheme 为 `http://`、`https://`、`socks5://` 和 `socks5h://`。凭据写在 URL 里，例如 `socks5://user:password@10.0.0.2:1080`。代理可以是任意地址，包括内网地址。
+- 上游 host 由代理在它自己的网络里解析，两种 SOCKS5 scheme 都是如此。VeriRelay 不解析，也不做公网 IP 检查。
+- 代理只负责承载连接。VeriRelay 经代理与上游建立 TLS，并自己校验上游证书，因此代理既看不到也改不了报文，收据与直连转发完全相同。
+- `https://` 代理的证书用 initrd 中的 CA bundle 校验。
+- 这个 header 不会被转发、签名或存储。
 
 ## 原文留存
 

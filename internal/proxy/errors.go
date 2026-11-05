@@ -15,6 +15,7 @@ const (
 	errorInvalidNonce                 errorCode = "invalid_nonce"
 	errorReceiptPublicKeyInvalid      errorCode = "receipt_public_key_invalid"
 	errorUpstreamRouteInvalid         errorCode = "upstream_route_invalid"
+	errorProxyInvalid                 errorCode = "proxy_invalid"
 	errorRequestBodyReadFailed        errorCode = "request_body_read_failed"
 	errorUpstreamNotAllowed           errorCode = "upstream_not_allowed"
 	errorRequestBodyTooLarge          errorCode = "request_body_too_large"
@@ -55,6 +56,7 @@ var errorSpecs = map[errorCode]errorSpec{
 	errorInvalidNonce:                 {http.StatusBadRequest, "nonce is invalid"},
 	errorReceiptPublicKeyInvalid:      {http.StatusInternalServerError, "receipt public key is invalid"},
 	errorUpstreamRouteInvalid:         {http.StatusBadRequest, "upstream route is invalid"},
+	errorProxyInvalid:                 {http.StatusBadRequest, "proxy is invalid"},
 	errorRequestBodyReadFailed:        {http.StatusBadRequest, "request body could not be read"},
 	errorUpstreamNotAllowed:           {http.StatusForbidden, "upstream is not allowed"},
 	errorRequestBodyTooLarge:          {http.StatusRequestEntityTooLarge, "request body exceeds the maximum size"},
