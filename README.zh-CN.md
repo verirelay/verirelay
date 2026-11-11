@@ -213,6 +213,10 @@ VeriRelay 只在保留期内保存收据：
 | [贡献](CONTRIBUTING.md) | 提交 PR 前的检查与跨仓库契约 |
 | [安全](SECURITY.md) | 如何报告漏洞 |
 
+## 🏘️ 社区
+
+- [LINUX DO](https://linux.do)
+
 ## 📄 License
 
 [Apache-2.0](LICENSE)
