@@ -213,6 +213,10 @@ Long-term evidence for billing, audits, and disputes is yours to keep. Within th
 | [Contributing](CONTRIBUTING.md) | Pre-PR checks and cross-repo contracts |
 | [Security](SECURITY.md) | How to report a vulnerability |
 
+## 🏘️ Community
+
+- [LINUX DO](https://linux.do)
+
 ## 📄 License
 
 [Apache-2.0](LICENSE)
